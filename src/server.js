@@ -13,6 +13,53 @@ const io = new Server(httpServer);
 const mqttManager = new MqttClientManager();
 
 const TOPICS_FILE = path.join(__dirname, '..', 'topics.json');
+const ENV_FILE = path.join(__dirname, '..', '.env');
+
+function saveEnvConfig(config) {
+  try {
+    if (!fs.existsSync(ENV_FILE)) {
+      fs.writeFileSync(ENV_FILE, '', 'utf8');
+    }
+    let content = fs.readFileSync(ENV_FILE, 'utf8');
+    const lines = content.split('\n');
+    const configKeys = Object.keys(config);
+    const updatedLines = [];
+    const matchedKeys = new Set();
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      let matched = false;
+      for (const key of configKeys) {
+        const regex = new RegExp(`^${key}\\s*=`);
+        if (regex.test(trimmed)) {
+          matched = true;
+          matchedKeys.add(key);
+          const currentVal = trimmed.substring(trimmed.indexOf('=') + 1).trim();
+          if (currentVal === config[key]) {
+            updatedLines.push(line);
+          } else {
+            updatedLines.push(`# ${trimmed}`);
+            updatedLines.push(`${key}=${config[key]}`);
+          }
+          break;
+        }
+      }
+      if (!matched) {
+        updatedLines.push(line);
+      }
+    }
+
+    for (const key of configKeys) {
+      if (!matchedKeys.has(key)) {
+        updatedLines.push(`${key}=${config[key]}`);
+      }
+    }
+
+    fs.writeFileSync(ENV_FILE, updatedLines.join('\n'), 'utf8');
+  } catch (err) {
+    console.error('[Env] 保存配置失败:', err.message);
+  }
+}
 
 function loadTopics() {
   try {
@@ -95,6 +142,41 @@ app.post('/api/connect', (req, res) => {
   try {
     mqttManager.disconnect();
     mqttManager.connect({ brokerUrl, username, password, clientId });
+
+    const currentEnv = {};
+    if (fs.existsSync(ENV_FILE)) {
+      const lines = fs.readFileSync(ENV_FILE, 'utf8').split('\n');
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed && !trimmed.startsWith('#')) {
+          const eqIdx = trimmed.indexOf('=');
+          if (eqIdx > 0) {
+            currentEnv[trimmed.substring(0, eqIdx)] = trimmed.substring(eqIdx + 1);
+          }
+        }
+      }
+    }
+
+    const config = { MQTT_BROKER_URL: brokerUrl };
+    if (username !== undefined && username !== '') {
+      config.MQTT_USERNAME = username;
+    } else if (currentEnv.MQTT_USERNAME) {
+      config.MQTT_USERNAME = currentEnv.MQTT_USERNAME;
+    }
+    if (password !== undefined && password !== '') {
+      config.MQTT_PASSWORD = password;
+    } else if (currentEnv.MQTT_PASSWORD) {
+      config.MQTT_PASSWORD = currentEnv.MQTT_PASSWORD;
+    }
+    if (clientId !== undefined && clientId !== '') {
+      config.MQTT_CLIENT_ID = clientId;
+    } else if (currentEnv.MQTT_CLIENT_ID) {
+      config.MQTT_CLIENT_ID = currentEnv.MQTT_CLIENT_ID;
+    } else {
+      config.MQTT_CLIENT_ID = 'jgc-push-server';
+    }
+
+    saveEnvConfig(config);
     res.json({ success: true, message: '正在连接...' });
   } catch (err) {
     res.status(500).json({ error: err.message });
