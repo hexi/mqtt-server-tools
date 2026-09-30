@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MQTT 管理面板</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f0f2f5; color: #333; }
+    .header { background: #1a1a2e; color: #fff; padding: 16px 24px; display: flex; align-items: center; gap: 12px; }
+    .header h1 { font-size: 18px; font-weight: 600; }
+    .status-dot { width: 10px; height: 10px; border-radius: 50%; background: #e74c3c; }
+    .status-dot.connected { background: #2ecc71; }
+    .container { max-width: 1000px; margin: 20px auto; padding: 0 16px; display: flex; flex-direction: column; gap: 16px; }
+    .card { background: #fff; border-radius: 8px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .card h2 { font-size: 15px; margin-bottom: 14px; color: #555; border-bottom: 1px solid #eee; padding-bottom: 8px; }
+    .form-row { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+    .form-row input, .form-row select { padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
+    .form-row input { flex: 1; min-width: 150px; }
+    .form-row select { min-width: 80px; }
+    .btn { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; color: #fff; transition: opacity 0.2s; }
+    .btn:hover { opacity: 0.85; }
+    .btn-primary { background: #3498db; }
+    .btn-success { background: #2ecc71; }
+    .btn-danger { background: #e74c3c; }
+    .btn-warning { background: #f39c12; }
+    .btn-sm { padding: 4px 10px; font-size: 12px; }
+    .sub-list { margin-top: 10px; }
+    .sub-item { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #f8f9fa; border-radius: 4px; margin-bottom: 6px; font-size: 13px; }
+    .sub-item .topic-name { font-family: monospace; color: #2c3e50; }
+    .msg-list { max-height: 400px; overflow-y: auto; }
+    .msg-item { padding: 10px 12px; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
+    .msg-item:last-child { border-bottom: none; }
+    .msg-topic { font-family: monospace; color: #3498db; font-weight: 600; margin-bottom: 4px; }
+    .msg-payload { color: #333; word-break: break-all; background: #f8f9fa; padding: 6px 8px; border-radius: 3px; margin: 4px 0; }
+    .msg-time { color: #999; font-size: 11px; }
+    .empty { text-align: center; color: #aaa; padding: 30px; font-size: 14px; }
+    .toast { position: fixed; top: 20px; right: 20px; padding: 12px 20px; border-radius: 4px; color: #fff; font-size: 14px; z-index: 999; opacity: 0; transition: opacity 0.3s; }
+    .toast.show { opacity: 1; }
+    .toast.success { background: #2ecc71; }
+    .toast.error { background: #e74c3c; }
+    .config-section { display: none; }
+    .config-section.show { display: block; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="status-dot" id="statusDot"></div>
+    <h1>MQTT 管理面板</h1>
+    <span id="statusText" style="font-size:13px;color:#aaa;">未连接</span>
+  </div>
+
+  <div class="container">
+    <!-- 连接配置 -->
+    <div class="card">
+      <h2>连接配置</h2>
+      <div class="form-row">
+        <input id="brokerUrl" placeholder="Broker 地址，如 tcp://192.168.1.100:1883" style="flex:2">
+        <input id="username" placeholder="用户名">
+        <input id="password" type="password" placeholder="密码">
+      </div>
+      <div class="form-row">
+        <input id="clientId" placeholder="Client ID（可选）">
+        <button class="btn btn-success" onclick="doConnect()">连接</button>
+        <button class="btn btn-danger" onclick="doDisconnect()">断开</button>
+      </div>
+      <div id="connInfo" style="margin-top:8px;font-size:12px;color:#888;"></div>
+    </div>
+
+    <!-- 诊断测试 -->
+    <div class="card">
+      <h2>诊断测试 <span id="diagStatus" style="font-size:12px;color:#999;font-weight:normal;">—</span></h2>
+      <p style="font-size:13px;color:#888;margin-bottom:10px;">自动订阅 test/diag 并发送测试消息，验证 Broker 连接和消息收发是否正常</p>
+      <div class="form-row">
+        <button class="btn btn-primary" onclick="doDiagTest()">开始诊断</button>
+      </div>
+      <div id="diagResult" style="margin-top:10px;font-size:13px;"></div>
+    </div>
+
+    <!-- 发布消息 -->
+    <div class="card">
+      <h2>发布消息</h2>
+      <div class="form-row">
+        <input id="pubTopic" placeholder="Topic，如 notify/device001" style="flex:2">
+        <select id="pubQos">
+          <option value="0">QoS 0</option>
+          <option value="1">QoS 1</option>
+          <option value="2">QoS 2</option>
+        </select>
+        <label style="display:flex;align-items:center;gap:4px;font-size:13px;">
+          <input type="checkbox" id="pubRetain"> Retain
+        </label>
+      </div>
+      <div class="form-row">
+        <textarea id="pubMessage" placeholder="消息内容" style="flex:1;min-height:60px;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:14px;resize:vertical;font-family:monospace;"></textarea>
+      </div>
+      <div class="form-row">
+        <button class="btn btn-primary" onclick="doPublish()">发送</button>
+      </div>
+    </div>
+
+    <!-- 订阅管理 -->
+    <div class="card">
+      <h2>订阅管理</h2>
+      <div class="form-row">
+        <input id="subTopic" placeholder="要订阅的 Topic，如 notify/#" style="flex:2">
+        <select id="subQos">
+          <option value="0">QoS 0</option>
+          <option value="1">QoS 1</option>
+          <option value="2">QoS 2</option>
+        </select>
+        <button class="btn btn-warning" onclick="doSubscribe()">订阅</button>
+      </div>
+      <div class="sub-list" id="subList">
+        <div class="empty">暂无订阅</div>
+      </div>
+    </div>
+
+    <!-- 消息日志 -->
+    <div class="card">
+      <h2>消息日志 <button class="btn btn-sm btn-danger" onclick="clearMessages()" style="float:right;">清空</button></h2>
+      <div class="msg-list" id="msgList">
+        <div class="empty">暂无消息</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+    const messages = [];
+
+    // Toast 提示
+    function showToast(msg, type = 'success') {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.className = `toast show ${type}`;
+      setTimeout(() => t.className = 'toast', 2500);
+    }
+
+    // 连接
+    async function doConnect() {
+      const brokerUrl = document.getElementById('brokerUrl').value.trim();
+      if (!brokerUrl) return showToast('请输入 Broker 地址', 'error');
+      const res = await fetch('/api/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          brokerUrl,
+          username: document.getElementById('username').value.trim(),
+          password: document.getElementById('password').value.trim(),
+          clientId: document.getElementById('clientId').value.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) showToast('正在连接...');
+      else showToast(data.error, 'error');
+    }
+
+    async function doDisconnect() {
+      await fetch('/api/disconnect', { method: 'POST' });
+      showToast('已断开');
+    }
+
+    // 诊断测试
+    async function doDiagTest() {
+      const statusEl = document.getElementById('diagStatus');
+      const resultEl = document.getElementById('diagResult');
+      const testTopic = 'test/diag-' + Date.now();
+
+      // 先检查连接状态
+      const connRes = await fetch('/api/status');
+      const connInfo = await connRes.json();
+
+      if (!connInfo.connected) {
+        let msg = '<span style="color:#e74c3c;">✗ MQTT 未连接到 Broker。</span><br>';
+        if (connInfo.lastError) {
+          msg += `<span style="color:#e74c3c;">错误信息: ${escapeHtml(connInfo.lastError)}</span><br>`;
+        }
+        msg += '<span style="color:#888;">请先在上方填写 Broker 地址并点击"连接"。</span>';
+        resultEl.innerHTML = msg;
+        statusEl.textContent = '未连接';
+        return;
+      }
+
+      statusEl.textContent = '正在测试...';
+      resultEl.innerHTML = '';
+
+      // 1. 订阅测试 topic
+      let res = await fetch('/api/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic: testTopic, qos: 0 }),
+      });
+      if (!res.ok) {
+        const d = await res.json();
+        resultEl.innerHTML = `<span style="color:#e74c3c;">订阅失败: ${d.error}</span>`;
+        statusEl.textContent = '失败';
+        return;
+      }
+
+      // 2. 等 500ms 后发送测试消息
+      await new Promise(r => setTimeout(r, 500));
+      const testMsg = JSON.stringify({ event: 'diag_test', time: new Date().toISOString() });
+      res = await fetch('/api/publish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic: testTopic, message: testMsg, qos: 0 }),
+      });
+      if (!res.ok) {
+        const d = await res.json();
+        resultEl.innerHTML = `<span style="color:#e74c3c;">发布失败: ${d.error}</span>`;
+        statusEl.textContent = '失败';
+        return;
+      }
+
+      // 3. 等待 2 秒看是否收到
+      resultEl.innerHTML = '<span style="color:#3498db;">已发送测试消息，等待接收...</span>';
+      await new Promise(r => setTimeout(r, 2000));
+
+      // 4. 检查是否收到
+      const msgsRes = await fetch('/api/messages?limit=5');
+      const msgs = await msgsRes.json();
+      const received = msgs.find(m => m.topic === testTopic);
+
+      if (received) {
+        resultEl.innerHTML = `<span style="color:#2ecc71;">✓ 收发正常！Broker 连接和消息通道都没问题。</span><br>
+          <span style="color:#888;">Topic: ${testTopic} | Payload: ${received.payload}</span>`;
+        statusEl.textContent = '通过';
+      } else {
+        let msg = '<span style="color:#e74c3c;">✗ 未收到自己发的消息。</span><br>';
+        if (connInfo.lastError) {
+          msg += `<span style="color:#e74c3c;">Broker 错误: ${escapeHtml(connInfo.lastError)}</span><br>`;
+        }
+        msg += '<span style="color:#888;">可能原因：<br>1. Broker 地址/账号/密码不正确<br>2. 网络不通（防火墙/端口未开放）<br>3. Broker 的 ACL 限制了该账号的订阅/发布权限</span>';
+        resultEl.innerHTML = msg;
+        statusEl.textContent = '失败';
+      }
+
+      // 5. 取消订阅测试 topic
+      await fetch('/api/unsubscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic: testTopic }),
+      });
+    }
+
+    // 发布
+    async function doPublish() {
+      const topic = document.getElementById('pubTopic').value.trim();
+      const message = document.getElementById('pubMessage').value;
+      if (!topic) return showToast('请输入 Topic', 'error');
+      const res = await fetch('/api/publish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          topic,
+          message,
+          qos: parseInt(document.getElementById('pubQos').value),
+          retain: document.getElementById('pubRetain').checked,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) showToast('已发送');
+      else showToast(data.error, 'error');
+    }
+
+    // 订阅
+    async function doSubscribe() {
+      const topic = document.getElementById('subTopic').value.trim();
+      if (!topic) return showToast('请输入 Topic', 'error');
+      const res = await fetch('/api/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          topic,
+          qos: parseInt(document.getElementById('subQos').value),
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('已订阅');
+        document.getElementById('subTopic').value = '';
+      } else {
+        showToast(data.error, 'error');
+      }
+    }
+
+    async function doUnsubscribe(topic) {
+      await fetch('/api/unsubscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic }),
+      });
+      showToast('已取消订阅');
+    }
+
+    // 清空消息
+    function clearMessages() {
+      messages.length = 0;
+      renderMessages();
+    }
+
+    // 渲染消息列表
+    function renderMessages() {
+      const el = document.getElementById('msgList');
+      if (messages.length === 0) {
+        el.innerHTML = '<div class="empty">暂无消息</div>';
+        return;
+      }
+      el.innerHTML = messages.map(m => `
+        <div class="msg-item">
+          <div class="msg-topic">${escapeHtml(m.topic)}</div>
+          <div class="msg-payload">${escapeHtml(m.payload)}</div>
+          <div class="msg-time">${m.time} | QoS ${m.qos}${m.retain ? ' | Retain' : ''}</div>
+        </div>
+      `).join('');
+    }
+
+    // 渲染订阅列表
+    function renderSubscriptions(subs) {
+      const el = document.getElementById('subList');
+      if (!subs || subs.length === 0) {
+        el.innerHTML = '<div class="empty">暂无订阅</div>';
+        return;
+      }
+      el.innerHTML = subs.map(s => `
+        <div class="sub-item">
+          <span class="topic-name">${escapeHtml(s.topic)} (QoS ${s.qos})</span>
+          <button class="btn btn-sm btn-danger" onclick="doUnsubscribe('${escapeJs(s.topic)}')">取消</button>
+        </div>
+      `).join('');
+    }
+
+    function escapeHtml(str) {
+      const d = document.createElement('div');
+      d.textContent = str;
+      return d.innerHTML;
+    }
+
+    function escapeJs(str) {
+      return str.replace(/'/g, "\\'");
+    }
+
+    // Socket.IO 事件
+    socket.on('status', (data) => {
+      const dot = document.getElementById('statusDot');
+      const text = document.getElementById('statusText');
+      if (data.connected) {
+        dot.className = 'status-dot connected';
+        text.textContent = '已连接';
+      } else if (data.reconnecting) {
+        dot.className = 'status-dot';
+        text.textContent = '重连中...';
+      } else {
+        dot.className = 'status-dot';
+        text.textContent = '未连接';
+      }
+      updateConnInfo(data);
+    });
+
+    socket.on('message', (msg) => {
+      messages.unshift({
+        topic: msg.topic,
+        payload: msg.payload,
+        qos: msg.qos,
+        retain: msg.retain,
+        time: new Date(msg.timestamp).toLocaleString(),
+      });
+      if (messages.length > 200) messages.pop();
+      renderMessages();
+    });
+
+    socket.on('error', (errMsg) => {
+      showToast(errMsg, 'error');
+    });
+
+    function updateConnInfo(data) {
+      const el = document.getElementById('connInfo');
+      if (!data.brokerUrl) { el.textContent = ''; return; }
+      let html = `Broker: ${escapeHtml(data.brokerUrl)} | 状态: ${data.connected ? '<span style="color:#2ecc71;">已连接</span>' : '<span style="color:#e74c3c;">未连接</span>'}`;
+      if (data.lastError) {
+        html += `<br><span style="color:#e74c3c;">错误: ${escapeHtml(data.lastError)}</span>`;
+      }
+      el.innerHTML = html;
+    }
+
+    // 初始化加载状态
+    fetch('/api/status').then(r => r.json()).then(data => {
+      if (data.connected) {
+        document.getElementById('statusDot').className = 'status-dot connected';
+        document.getElementById('statusText').textContent = '已连接';
+      }
+      renderSubscriptions(data.subscriptions);
+      updateConnInfo(data);
+    });
+
+    // 定时刷新订阅列表
+    setInterval(() => {
+      fetch('/api/status').then(r => r.json()).then(data => {
+        renderSubscriptions(data.subscriptions);
+        updateConnInfo(data);
+      });
+    }, 3000);
+  </script>
+</body>
+</html>
