@@ -1,5 +1,6 @@
 require('dotenv').config();
 const path = require('path');
+const fs = require('fs');
 const express = require('express');
 const { createServer } = require('http');
 const { Server } = require('socket.io');
@@ -11,11 +12,74 @@ const io = new Server(httpServer);
 
 const mqttManager = new MqttClientManager();
 
+const TOPICS_FILE = path.join(__dirname, '..', 'topics.json');
+
+function loadTopics() {
+  try {
+    if (fs.existsSync(TOPICS_FILE)) {
+      const data = fs.readFileSync(TOPICS_FILE, 'utf8');
+      const parsed = JSON.parse(data);
+      if (Array.isArray(parsed) && parsed.length > 0 && typeof parsed[0] === 'string') {
+        return parsed.map(t => ({ topic: t, tag: '' }));
+      }
+      return parsed;
+    }
+  } catch (err) {
+    console.error('[Topics] 加载失败:', err.message);
+  }
+  return [];
+}
+
+function saveTopics(topics) {
+  try {
+    fs.writeFileSync(TOPICS_FILE, JSON.stringify(topics, null, 2), 'utf8');
+  } catch (err) {
+    console.error('[Topics] 保存失败:', err.message);
+  }
+}
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 app.get('/api/status', (req, res) => {
   res.json(mqttManager.getConnectionInfo());
+});
+
+app.get('/api/topics', (req, res) => {
+  res.json(loadTopics());
+});
+
+app.post('/api/topics', (req, res) => {
+  const { topic, tag = '' } = req.body;
+  if (!topic) return res.json({ success: false, error: 'topic 必填' });
+  const topics = loadTopics();
+  if (topics.find(t => t.topic === topic)) {
+    return res.json({ success: false, error: '此 Topic 已存在' });
+  }
+  topics.push({ topic, tag });
+  saveTopics(topics);
+  res.json({ success: true, topics });
+});
+
+app.put('/api/topics', (req, res) => {
+  const { topic, tag } = req.body;
+  if (!topic) return res.status(400).json({ error: 'topic 必填' });
+  const topics = loadTopics();
+  const entry = topics.find(t => t.topic === topic);
+  if (entry) {
+    entry.tag = tag !== undefined ? tag : entry.tag;
+    saveTopics(topics);
+  }
+  res.json({ success: true, topics });
+});
+
+app.delete('/api/topics', (req, res) => {
+  const { topic } = req.body;
+  if (!topic) return res.status(400).json({ error: 'topic 必填' });
+  let topics = loadTopics();
+  topics = topics.filter(t => t.topic !== topic);
+  saveTopics(topics);
+  res.json({ success: true, topics });
 });
 
 app.get('/api/messages', (req, res) => {
@@ -47,6 +111,11 @@ app.post('/api/publish', async (req, res) => {
   try {
     await mqttManager.publish(topic, String(message), qos, retain);
     console.log(`[API] publish 成功: topic=${topic}`);
+    const topics = loadTopics();
+    if (!topics.find(t => t.topic === topic)) {
+      topics.push({ topic, tag: '' });
+      saveTopics(topics);
+    }
     res.json({ success: true });
   } catch (err) {
     console.error(`[API] publish 失败: topic=${topic}, error=${err.message}`);

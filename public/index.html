@@ -26,8 +26,23 @@
     .btn-warning { background: #f39c12; }
     .btn-sm { padding: 4px 10px; font-size: 12px; }
     .sub-list { margin-top: 10px; }
-    .sub-item { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #f8f9fa; border-radius: 4px; margin-bottom: 6px; font-size: 13px; }
+    .sub-item { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; background: #f8f9fa; border-radius: 4px; margin-bottom: 4px; font-size: 13px; }
     .sub-item .topic-name { font-family: monospace; color: #2c3e50; }
+    .topic-tag { display: inline-block; padding: 1px 8px; background: #e8f4fd; color: #3498db; border-radius: 10px; font-size: 11px; margin-left: 8px; cursor: pointer; line-height: 1.6; }
+    .topic-tag.empty { background: #fff; color: #999; padding: 1px 8px; border: 1px dashed #ccc; }
+    .topic-tag-input { padding: 2px 6px; border: 1px solid #3498db; border-radius: 3px; font-size: 11px; width: 120px; margin-left: 8px; outline: none; }
+    .topic-input-wrap { position: relative; flex: 2; display: flex; align-items: center; }
+    .topic-input-wrap input { flex: 1; padding-right: 28px; }
+    .topic-clear-btn { position: absolute; right: 8px; background: none; border: none; color: #aaa; cursor: pointer; font-size: 16px; line-height: 1; display: none; padding: 2px 4px; }
+    .topic-clear-btn:hover { color: #e74c3c; }
+    .topic-dropdown { position: absolute; top: 100%; left: 0; min-width: 100%; background: #fff; border: 1px solid #ddd; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); max-height: 240px; overflow-y: auto; z-index: 100; display: none; margin-top: 2px; }
+    .topic-dropdown.show { display: block; }
+    .topic-dropdown-item { display: flex; align-items: center; padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #f5f5f5; font-size: 13px; gap: 8px; }
+    .topic-dropdown-item:last-child { border-bottom: none; }
+    .topic-dropdown-item:hover { background: #f0f7ff; }
+    .topic-dropdown-item .topic-name { font-family: monospace; color: #2c3e50; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .topic-dropdown-item .topic-tag { flex-shrink: 0; }
+    .topic-dropdown-empty { padding: 16px; text-align: center; color: #aaa; font-size: 13px; }
     .msg-list { max-height: 400px; overflow-y: auto; }
     .msg-item { padding: 10px 12px; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
     .msg-item:last-child { border-bottom: none; }
@@ -80,8 +95,12 @@
     <!-- 发布消息 -->
     <div class="card">
       <h2>发布消息</h2>
-      <div class="form-row">
-        <input id="pubTopic" placeholder="Topic，如 notify/device001" style="flex:2">
+      <div class="form-row" style="align-items:center;">
+        <div class="topic-input-wrap">
+          <input id="pubTopic" placeholder="Topic，如 notify/device001" autocomplete="off">
+          <button class="topic-clear-btn" id="topicClearBtn" onclick="clearTopic()" title="清空">✕</button>
+          <div class="topic-dropdown" id="topicDropdown"></div>
+        </div>
         <select id="pubQos">
           <option value="0">QoS 0</option>
           <option value="1">QoS 1</option>
@@ -96,6 +115,18 @@
       </div>
       <div class="form-row">
         <button class="btn btn-primary" onclick="doPublish()">发送</button>
+      </div>
+    </div>
+
+    <!-- Topic 管理 -->
+    <div class="card">
+      <h2>Topic 管理</h2>
+      <div class="form-row">
+        <input id="newTopic" placeholder="输入 Topic 添加" style="flex:2" onkeydown="if(event.key==='Enter')addTopic()">
+        <button class="btn btn-success btn-sm" onclick="addTopic()">添加</button>
+      </div>
+      <div class="sub-list" id="topicManageList">
+        <div class="empty">暂无保存的 Topic</div>
       </div>
     </div>
 
@@ -265,7 +296,10 @@
       });
       const data = await res.json();
       console.log('[Publish] 响应:', data);
-      if (res.ok) showToast('已发送');
+      if (res.ok) {
+        showToast('已发送');
+        loadSavedTopics();
+      }
       else showToast(data.error, 'error');
     }
 
@@ -400,6 +434,143 @@
       renderSubscriptions(data.subscriptions);
       updateConnInfo(data);
     });
+
+    // Topic 管理
+    let savedTopics = [];
+
+    async function loadSavedTopics() {
+      const res = await fetch('/api/topics');
+      savedTopics = await res.json();
+      renderTopicDropdown();
+      renderTopicManageList();
+    }
+
+    function renderTopicDropdown() {
+      const dd = document.getElementById('topicDropdown');
+      if (savedTopics.length === 0) {
+        dd.innerHTML = '<div class="topic-dropdown-empty">暂无保存的 Topic</div>';
+        return;
+      }
+      dd.innerHTML = savedTopics.map(t => `
+        <div class="topic-dropdown-item" onclick="selectTopic('${escapeJs(t.topic)}')">
+          <span class="topic-name">${escapeHtml(t.topic)}</span>
+          ${t.tag ? `<span class="topic-tag">${escapeHtml(t.tag)}</span>` : ''}
+        </div>
+      `).join('');
+    }
+
+    function renderTopicManageList() {
+      const manageEl = document.getElementById('topicManageList');
+      if (savedTopics.length === 0) {
+        manageEl.innerHTML = '<div class="empty">暂无保存的 Topic</div>';
+      } else {
+        manageEl.innerHTML = savedTopics.map(t => `
+          <div class="sub-item">
+            <div style="display:flex;align-items:center;flex:1;min-width:0;">
+              <span class="topic-name" style="flex-shrink:0;">${escapeHtml(t.topic)}</span>
+              ${t.tag
+                ? `<span class="topic-tag" onclick="editTag(this, '${escapeJs(t.topic)}')" title="点击编辑备注">${escapeHtml(t.tag)}</span>`
+                : `<span class="topic-tag empty" onclick="editTag(this, '${escapeJs(t.topic)}')" title="点击添加备注">添加备注</span>`
+              }
+            </div>
+            <button class="btn btn-sm btn-danger" onclick="deleteTopic('${escapeJs(t.topic)}')">删除</button>
+          </div>
+        `).join('');
+      }
+    }
+
+    function selectTopic(topic) {
+      document.getElementById('pubTopic').value = topic;
+      hideTopicDropdown();
+      updateClearBtn();
+    }
+
+    function clearTopic() {
+      document.getElementById('pubTopic').value = '';
+      updateClearBtn();
+    }
+
+    function updateClearBtn() {
+      document.getElementById('topicClearBtn').style.display =
+        document.getElementById('pubTopic').value ? 'block' : 'none';
+    }
+
+    function showTopicDropdown() {
+      renderTopicDropdown();
+      document.getElementById('topicDropdown').classList.add('show');
+    }
+
+    function hideTopicDropdown() {
+      document.getElementById('topicDropdown').classList.remove('show');
+    }
+
+    document.getElementById('pubTopic').addEventListener('focus', showTopicDropdown);
+    document.getElementById('pubTopic').addEventListener('input', updateClearBtn);
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.topic-input-wrap')) hideTopicDropdown();
+    });
+
+    async function editTag(el, topic) {
+      const currentTag = (el.textContent === '无备注' || el.textContent === '添加备注') ? '' : el.textContent;
+      const input = document.createElement('input');
+      input.className = 'topic-tag-input';
+      input.value = currentTag;
+      input.placeholder = '输入备注';
+      el.replaceWith(input);
+      input.focus();
+      input.select();
+
+      const save = async () => {
+        const newTag = input.value.trim();
+        if (newTag !== currentTag) {
+          await fetch('/api/topics', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ topic, tag: newTag }),
+          });
+        }
+        loadSavedTopics();
+      };
+
+      input.addEventListener('blur', save);
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+        if (e.key === 'Escape') { input.removeEventListener('blur', save); loadSavedTopics(); }
+      });
+    }
+
+    async function addTopic() {
+      const input = document.getElementById('newTopic');
+      const topic = input.value.trim();
+      if (!topic) return showToast('请输入 Topic', 'error');
+      const res = await fetch('/api/topics', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast('已添加');
+        input.value = '';
+        loadSavedTopics();
+      } else {
+        showToast(data.error, 'error');
+      }
+    }
+
+    async function deleteTopic(topic) {
+      const res = await fetch('/api/topics', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic }),
+      });
+      if (res.ok) {
+        showToast('已删除');
+        loadSavedTopics();
+      }
+    }
+
+    loadSavedTopics();
 
     // 定时刷新订阅列表
     setInterval(() => {
