@@ -252,6 +252,7 @@
       const topic = document.getElementById('pubTopic').value.trim();
       const message = document.getElementById('pubMessage').value;
       if (!topic) return showToast('请输入 Topic', 'error');
+      console.log('[Publish] 发送消息:', { topic, message, length: message.length });
       const res = await fetch('/api/publish', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -263,6 +264,7 @@
         }),
       });
       const data = await res.json();
+      console.log('[Publish] 响应:', data);
       if (res.ok) showToast('已发送');
       else showToast(data.error, 'error');
     }
@@ -380,7 +382,9 @@
     function updateConnInfo(data) {
       const el = document.getElementById('connInfo');
       if (!data.brokerUrl) { el.textContent = ''; return; }
-      let html = `Broker: ${escapeHtml(data.brokerUrl)} | 状态: ${data.connected ? '<span style="color:#2ecc71;">已连接</span>' : '<span style="color:#e74c3c;">未连接</span>'}`;
+      let html = `Broker: ${escapeHtml(data.brokerUrl)}`;
+      if (data.username) html += ` | 账号: <strong>${escapeHtml(data.username)}</strong>`;
+      html += ` | 状态: ${data.connected ? '<span style="color:#2ecc71;">已连接</span>' : '<span style="color:#e74c3c;">未连接</span>'}`;
       if (data.lastError) {
         html += `<br><span style="color:#e74c3c;">错误: ${escapeHtml(data.lastError)}</span>`;
       }

@@ -11,6 +11,7 @@ class MqttClientManager extends EventEmitter {
     this.maxMessages = 200;
     this.lastError = null;
     this.brokerUrl = null;
+    this.username = null;
   }
 
   connect(options) {
@@ -22,6 +23,7 @@ class MqttClientManager extends EventEmitter {
     this.receivedMessages = [];
     this.lastError = null;
     this.brokerUrl = options.brokerUrl;
+    this.username = options.username || null;
 
     const connectOptions = {
       username: options.username || undefined,
@@ -91,13 +93,14 @@ class MqttClientManager extends EventEmitter {
     if (!this.connected) {
       throw new Error('MQTT 未连接');
     }
+    console.log(`[MQTT] 准备发布: topic=${topic}, qos=${qos}, retain=${retain}, username=${this.username}, clientId=${this.client?.options?.clientId}`);
     return new Promise((resolve, reject) => {
       this.client.publish(topic, message, { qos, retain }, (err) => {
         if (err) {
           console.error(`[MQTT] 发布失败 topic=${topic}:`, err.message);
           reject(err);
         } else {
-          console.log(`[MQTT] 已发布 topic=${topic} qos=${qos} len=${message.length}`);
+          console.log(`[MQTT] 发布成功 topic=${topic} qos=${qos} len=${message.length}`);
           resolve();
         }
       });
@@ -141,6 +144,7 @@ class MqttClientManager extends EventEmitter {
     return {
       connected: this.connected,
       brokerUrl: this.brokerUrl,
+      username: this.username,
       lastError: this.lastError,
       subscriptions: this.getSubscriptions(),
     };

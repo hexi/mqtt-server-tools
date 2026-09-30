@@ -42,10 +42,14 @@ app.post('/api/publish', async (req, res) => {
   if (!topic || message === undefined) {
     return res.status(400).json({ error: 'topic 和 message 必填' });
   }
+  console.log(`[API] publish 请求: topic=${topic}, qos=${qos}, retain=${retain}, username=${mqttManager.username}, connected=${mqttManager.connected}`);
+  console.log(`[API] 消息内容: ${message}`);
   try {
     await mqttManager.publish(topic, String(message), qos, retain);
+    console.log(`[API] publish 成功: topic=${topic}`);
     res.json({ success: true });
   } catch (err) {
+    console.error(`[API] publish 失败: topic=${topic}, error=${err.message}`);
     res.status(500).json({ error: err.message });
   }
 });
