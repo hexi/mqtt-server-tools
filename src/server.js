@@ -14,6 +14,8 @@ const mqttManager = new MqttClientManager();
 
 const TOPICS_FILE = path.join(__dirname, '..', 'topics.json');
 const ENV_FILE = path.join(__dirname, '..', '.env');
+const SENT_MESSAGES_FILE = path.join(__dirname, '..', 'sent-messages.json');
+const MAX_SENT_MESSAGES = 200;
 
 function saveEnvConfig(config) {
   try {
@@ -82,6 +84,35 @@ function saveTopics(topics) {
     fs.writeFileSync(TOPICS_FILE, JSON.stringify(topics, null, 2), 'utf8');
   } catch (err) {
     console.error('[Topics] 保存失败:', err.message);
+  }
+}
+
+function loadSentMessages() {
+  try {
+    if (fs.existsSync(SENT_MESSAGES_FILE)) {
+      const data = fs.readFileSync(SENT_MESSAGES_FILE, 'utf8');
+      return JSON.parse(data);
+    }
+  } catch (err) {
+    console.error('[SentMessages] 加载失败:', err.message);
+  }
+  return [];
+}
+
+function saveSentMessage(msg) {
+  try {
+    const messages = loadSentMessages();
+    messages.unshift({
+      ...msg,
+      id: Date.now(),
+      timestamp: new Date().toISOString(),
+    });
+    if (messages.length > MAX_SENT_MESSAGES) {
+      messages.length = MAX_SENT_MESSAGES;
+    }
+    fs.writeFileSync(SENT_MESSAGES_FILE, JSON.stringify(messages, null, 2), 'utf8');
+  } catch (err) {
+    console.error('[SentMessages] 保存失败:', err.message);
   }
 }
 
@@ -198,11 +229,25 @@ app.post('/api/publish', async (req, res) => {
       topics.push({ topic, tag: '' });
       saveTopics(topics);
     }
+    saveSentMessage({ topic, message: String(message), qos, retain });
     res.json({ success: true });
   } catch (err) {
     console.error(`[API] publish 失败: topic=${topic}, error=${err.message}`);
     res.status(500).json({ error: err.message });
   }
+});
+
+app.get('/api/sent-messages', (req, res) => {
+  const { search } = req.query;
+  let messages = loadSentMessages();
+  if (search) {
+    const keyword = search.toLowerCase();
+    messages = messages.filter(m =>
+      m.topic.toLowerCase().includes(keyword) ||
+      m.message.toLowerCase().includes(keyword)
+    );
+  }
+  res.json(messages);
 });
 
 app.post('/api/subscribe', (req, res) => {

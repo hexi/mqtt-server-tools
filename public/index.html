@@ -56,6 +56,20 @@
     .toast.error { background: #e74c3c; }
     .config-section { display: none; }
     .config-section.show { display: block; }
+    .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; display: flex; align-items: center; justify-content: center; }
+    .modal-content { background: #fff; border-radius: 8px; width: 90%; max-width: 700px; max-height: 80vh; display: flex; flex-direction: column; box-shadow: 0 8px 24px rgba(0,0,0,0.2); }
+    .modal-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid #eee; }
+    .modal-header h3 { font-size: 16px; color: #333; margin: 0; }
+    .modal-close { background: none; border: none; font-size: 20px; cursor: pointer; color: #999; padding: 4px 8px; }
+    .modal-close:hover { color: #333; }
+    .modal-body { padding: 20px; overflow-y: auto; flex: 1; }
+    .history-list { max-height: 500px; overflow-y: auto; }
+    .history-item { padding: 10px 12px; background: #f8f9fa; border-radius: 4px; margin-bottom: 8px; font-size: 13px; }
+    .history-item-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+    .history-item-topic { font-family: monospace; color: #3498db; font-weight: 600; }
+    .history-item-time { color: #999; font-size: 11px; }
+    .history-item-payload { color: #333; word-break: break-all; background: #fff; padding: 6px 8px; border-radius: 3px; font-family: monospace; font-size: 12px; }
+    .history-item-meta { display: flex; gap: 12px; margin-top: 6px; font-size: 11px; color: #888; }
   </style>
 </head>
 <body>
@@ -115,6 +129,7 @@
       </div>
       <div class="form-row">
         <button class="btn btn-primary" onclick="doPublish()">发送</button>
+        <button class="btn btn-warning" onclick="showSentHistory()">历史记录</button>
       </div>
     </div>
 
@@ -157,6 +172,24 @@
   </div>
 
   <div class="toast" id="toast"></div>
+
+  <!-- 发送历史弹窗 -->
+  <div id="historyModal" class="modal-overlay" style="display:none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>发送历史记录</h3>
+        <button class="modal-close" onclick="closeSentHistory()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row" style="margin-bottom:12px;">
+          <input id="historySearch" placeholder="搜索 Topic 或消息内容..." style="flex:1" oninput="filterSentHistory()">
+        </div>
+        <div id="historyList" class="history-list">
+          <div class="empty">暂无历史记录</div>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
@@ -569,6 +602,64 @@
         loadSavedTopics();
       }
     }
+
+    // 发送历史
+    let sentHistoryData = [];
+
+    async function showSentHistory() {
+      const res = await fetch('/api/sent-messages');
+      sentHistoryData = await res.json();
+      document.getElementById('historySearch').value = '';
+      renderSentHistory(sentHistoryData);
+      document.getElementById('historyModal').style.display = 'flex';
+    }
+
+    function closeSentHistory() {
+      document.getElementById('historyModal').style.display = 'none';
+    }
+
+    function filterSentHistory() {
+      const keyword = document.getElementById('historySearch').value.toLowerCase();
+      if (!keyword) {
+        renderSentHistory(sentHistoryData);
+        return;
+      }
+      const filtered = sentHistoryData.filter(m =>
+        m.topic.toLowerCase().includes(keyword) ||
+        m.message.toLowerCase().includes(keyword)
+      );
+      renderSentHistory(filtered);
+    }
+
+    function renderSentHistory(messages) {
+      const listEl = document.getElementById('historyList');
+      if (messages.length === 0) {
+        listEl.innerHTML = '<div class="empty">暂无历史记录</div>';
+        return;
+      }
+      listEl.innerHTML = messages.map(m => {
+        const time = new Date(m.timestamp).toLocaleString('zh-CN');
+        return `
+          <div class="history-item">
+            <div class="history-item-header">
+              <span class="history-item-topic">${escapeHtml(m.topic)}</span>
+              <span class="history-item-time">${time}</span>
+            </div>
+            <div class="history-item-payload">${escapeHtml(m.message)}</div>
+            <div class="history-item-meta">
+              <span>QoS: ${m.qos}</span>
+              ${m.retain ? '<span>Retain</span>' : ''}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    document.getElementById('historyModal').addEventListener('click', (e) => {
+      if (e.target === document.getElementById('historyModal')) {
+        closeSentHistory();
+      }
+    });
 
     loadSavedTopics();
 
