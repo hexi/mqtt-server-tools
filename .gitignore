@@ -2,5 +2,7 @@ node_modules/
 .env
 topics.json
 sent-messages.json
+connections.json
 *.log
 npm-debug.log*
+.qoder-credits/

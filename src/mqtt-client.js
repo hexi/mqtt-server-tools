@@ -12,6 +12,7 @@ class MqttClientManager extends EventEmitter {
     this.lastError = null;
     this.brokerUrl = null;
     this.username = null;
+    this.clientId = null;
   }
 
   connect(options) {
@@ -24,6 +25,7 @@ class MqttClientManager extends EventEmitter {
     this.lastError = null;
     this.brokerUrl = options.brokerUrl;
     this.username = options.username || null;
+    this.clientId = options.clientId || `mqtt-web-${Date.now()}`;
 
     const connectOptions = {
       username: options.username || undefined,
@@ -41,7 +43,7 @@ class MqttClientManager extends EventEmitter {
       this.connected = true;
       this.lastError = null;
       console.log('[MQTT] 连接成功');
-      this.emit('status', { connected: true, brokerUrl: options.brokerUrl });
+      this.emit('status', { connected: true, brokerUrl: options.brokerUrl, clientId: this.clientId });
 
       for (const [topic, sub] of this.subscriptions) {
         if (!sub.active) {
@@ -145,6 +147,7 @@ class MqttClientManager extends EventEmitter {
       connected: this.connected,
       brokerUrl: this.brokerUrl,
       username: this.username,
+      clientId: this.clientId,
       lastError: this.lastError,
       subscriptions: this.getSubscriptions(),
     };
@@ -155,6 +158,7 @@ class MqttClientManager extends EventEmitter {
       this.client.end(true);
       this.client = null;
       this.connected = false;
+      this.emit('status', { connected: false });
     }
   }
 }

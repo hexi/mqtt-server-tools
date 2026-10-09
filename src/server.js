@@ -13,55 +13,9 @@ const io = new Server(httpServer);
 const mqttManager = new MqttClientManager();
 
 const TOPICS_FILE = path.join(__dirname, '..', 'topics.json');
-const ENV_FILE = path.join(__dirname, '..', '.env');
 const SENT_MESSAGES_FILE = path.join(__dirname, '..', 'sent-messages.json');
+const CONNECTIONS_FILE = path.join(__dirname, '..', 'connections.json');
 const MAX_SENT_MESSAGES = 200;
-
-function saveEnvConfig(config) {
-  try {
-    if (!fs.existsSync(ENV_FILE)) {
-      fs.writeFileSync(ENV_FILE, '', 'utf8');
-    }
-    let content = fs.readFileSync(ENV_FILE, 'utf8');
-    const lines = content.split('\n');
-    const configKeys = Object.keys(config);
-    const updatedLines = [];
-    const matchedKeys = new Set();
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      let matched = false;
-      for (const key of configKeys) {
-        const regex = new RegExp(`^${key}\\s*=`);
-        if (regex.test(trimmed)) {
-          matched = true;
-          matchedKeys.add(key);
-          const currentVal = trimmed.substring(trimmed.indexOf('=') + 1).trim();
-          if (currentVal === config[key]) {
-            updatedLines.push(line);
-          } else {
-            updatedLines.push(`# ${trimmed}`);
-            updatedLines.push(`${key}=${config[key]}`);
-          }
-          break;
-        }
-      }
-      if (!matched) {
-        updatedLines.push(line);
-      }
-    }
-
-    for (const key of configKeys) {
-      if (!matchedKeys.has(key)) {
-        updatedLines.push(`${key}=${config[key]}`);
-      }
-    }
-
-    fs.writeFileSync(ENV_FILE, updatedLines.join('\n'), 'utf8');
-  } catch (err) {
-    console.error('[Env] 保存配置失败:', err.message);
-  }
-}
 
 function loadTopics() {
   try {
@@ -116,7 +70,56 @@ function saveSentMessage(msg) {
   }
 }
 
+function loadConnections() {
+  try {
+    if (fs.existsSync(CONNECTIONS_FILE)) {
+      const data = fs.readFileSync(CONNECTIONS_FILE, 'utf8');
+      return JSON.parse(data);
+    }
+  } catch (err) {
+    console.error('[Connections] 加载失败:', err.message);
+  }
+  return [];
+}
+
+function saveConnections(connections) {
+  try {
+    fs.writeFileSync(CONNECTIONS_FILE, JSON.stringify(connections, null, 2), 'utf8');
+  } catch (err) {
+    console.error('[Connections] 保存失败:', err.message);
+  }
+}
+
+function saveConnection(config) {
+  const connections = loadConnections();
+  const existing = connections.find(c => c.brokerUrl === config.brokerUrl && c.username === config.username);
+  if (existing) {
+    existing.clientId = config.clientId;
+    existing.password = config.password;
+    existing.lastConnected = new Date().toISOString();
+  } else {
+    connections.push({
+      id: Date.now(),
+      brokerUrl: config.brokerUrl,
+      username: config.username || '',
+      password: config.password || '',
+      clientId: config.clientId || 'jgc-push-server',
+      tag: '',
+      lastConnected: new Date().toISOString(),
+    });
+  }
+  saveConnections(connections);
+}
+
 app.use(express.json());
+app.use((req, res, next) => {
+  if (req.path.endsWith('.html') || req.path === '/') {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+  }
+  next();
+});
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 app.get('/api/status', (req, res) => {
@@ -173,45 +176,35 @@ app.post('/api/connect', (req, res) => {
   try {
     mqttManager.disconnect();
     mqttManager.connect({ brokerUrl, username, password, clientId });
-
-    const currentEnv = {};
-    if (fs.existsSync(ENV_FILE)) {
-      const lines = fs.readFileSync(ENV_FILE, 'utf8').split('\n');
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (trimmed && !trimmed.startsWith('#')) {
-          const eqIdx = trimmed.indexOf('=');
-          if (eqIdx > 0) {
-            currentEnv[trimmed.substring(0, eqIdx)] = trimmed.substring(eqIdx + 1);
-          }
-        }
-      }
-    }
-
-    const config = { MQTT_BROKER_URL: brokerUrl };
-    if (username !== undefined && username !== '') {
-      config.MQTT_USERNAME = username;
-    } else if (currentEnv.MQTT_USERNAME) {
-      config.MQTT_USERNAME = currentEnv.MQTT_USERNAME;
-    }
-    if (password !== undefined && password !== '') {
-      config.MQTT_PASSWORD = password;
-    } else if (currentEnv.MQTT_PASSWORD) {
-      config.MQTT_PASSWORD = currentEnv.MQTT_PASSWORD;
-    }
-    if (clientId !== undefined && clientId !== '') {
-      config.MQTT_CLIENT_ID = clientId;
-    } else if (currentEnv.MQTT_CLIENT_ID) {
-      config.MQTT_CLIENT_ID = currentEnv.MQTT_CLIENT_ID;
-    } else {
-      config.MQTT_CLIENT_ID = 'jgc-push-server';
-    }
-
-    saveEnvConfig(config);
+    saveConnection({ brokerUrl, username, password, clientId });
     res.json({ success: true, message: '正在连接...' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+app.get('/api/connections', (req, res) => {
+  res.json(loadConnections());
+});
+
+app.put('/api/connections/:id', (req, res) => {
+  const { id } = req.params;
+  const { tag } = req.body;
+  const connections = loadConnections();
+  const conn = connections.find(c => c.id === parseInt(id));
+  if (conn) {
+    conn.tag = tag !== undefined ? tag : conn.tag;
+    saveConnections(connections);
+  }
+  res.json({ success: true, connections });
+});
+
+app.delete('/api/connections/:id', (req, res) => {
+  const { id } = req.params;
+  let connections = loadConnections();
+  connections = connections.filter(c => c.id !== parseInt(id));
+  saveConnections(connections);
+  res.json({ success: true, connections });
 });
 
 app.post('/api/publish', async (req, res) => {
@@ -283,7 +276,7 @@ app.post('/api/disconnect', (req, res) => {
 
 // Socket.IO - 实时推送 MQTT 事件到前端
 io.on('connection', (socket) => {
-  socket.emit('status', { connected: mqttManager.connected });
+  socket.emit('status', mqttManager.getConnectionInfo());
 });
 
 mqttManager.on('status', (data) => {
@@ -298,14 +291,22 @@ mqttManager.on('error', (errMsg) => {
   io.emit('error', errMsg);
 });
 
-// 启动时自动连接 .env 中的配置
+// 启动时自动连接：使用 connections.json 中上次连接成功的配置
 const PORT = process.env.WEB_PORT || 3000;
-if (process.env.MQTT_BROKER_URL && process.env.MQTT_BROKER_URL !== 'tcp://your-broker-address:1883') {
+const connections = loadConnections();
+if (connections.length > 0) {
+  // 按 lastConnected 降序排序，如果相同则按 id 升序（确保数组第一个优先）
+  const last = connections.sort((a, b) => {
+    const timeDiff = new Date(b.lastConnected) - new Date(a.lastConnected);
+    if (timeDiff !== 0) return timeDiff;
+    return a.id - b.id;
+  })[0];
+  console.log(`[AutoConnect] 使用连接配置: ${last.brokerUrl} (${last.username || '无用户名'})`);
   mqttManager.connect({
-    brokerUrl: process.env.MQTT_BROKER_URL,
-    username: process.env.MQTT_USERNAME,
-    password: process.env.MQTT_PASSWORD,
-    clientId: process.env.MQTT_CLIENT_ID,
+    brokerUrl: last.brokerUrl,
+    username: last.username,
+    password: last.password,
+    clientId: last.clientId,
   });
 }
 

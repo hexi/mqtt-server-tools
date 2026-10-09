@@ -1,0 +1,18 @@
+[
+  {
+    "id": 1,
+    "brokerUrl": "tcp://your-broker-address:1883",
+    "username": "your-username",
+    "password": "your-password",
+    "clientId": "jgc-push-server",
+    "tag": "生产环境"
+  },
+  {
+    "id": 2,
+    "brokerUrl": "tcp://test-broker-address:1883",
+    "username": "test-username",
+    "password": "test-password",
+    "clientId": "jgc-push-server",
+    "tag": "测试环境"
+  }
+]

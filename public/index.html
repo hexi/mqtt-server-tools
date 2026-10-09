@@ -25,6 +25,7 @@
     .btn-danger { background: #e74c3c; }
     .btn-warning { background: #f39c12; }
     .btn-sm { padding: 4px 10px; font-size: 12px; }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
     .sub-list { margin-top: 10px; }
     .sub-item { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; background: #f8f9fa; border-radius: 4px; margin-bottom: 4px; font-size: 13px; }
     .sub-item .topic-name { font-family: monospace; color: #2c3e50; }
@@ -40,6 +41,9 @@
     .topic-dropdown-item { display: flex; align-items: center; padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #f5f5f5; font-size: 13px; gap: 8px; }
     .topic-dropdown-item:last-child { border-bottom: none; }
     .topic-dropdown-item:hover { background: #f0f7ff; }
+    .topic-dropdown-item.selected { background: #5cdb95; color: #fff; }
+    .topic-dropdown-item.selected:hover { background: #5cdb95; }
+    .topic-dropdown-item.selected .topic-name { color: #fff; }
     .topic-dropdown-item .topic-name { font-family: monospace; color: #2c3e50; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .topic-dropdown-item .topic-tag { flex-shrink: 0; }
     .topic-dropdown-empty { padding: 16px; text-align: center; color: #aaa; font-size: 13px; }
@@ -70,6 +74,31 @@
     .history-item-time { color: #999; font-size: 11px; }
     .history-item-payload { color: #333; word-break: break-all; background: #fff; padding: 6px 8px; border-radius: 3px; font-family: monospace; font-size: 12px; }
     .history-item-meta { display: flex; gap: 12px; margin-top: 6px; font-size: 11px; color: #888; }
+    .conn-dropdown-wrap { position: relative; flex: 2; min-width: 200px; }
+    .conn-dropdown-display { display: flex; align-items: center; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; cursor: pointer; background: #fff; gap: 8px; min-height: 37px; }
+    .conn-dropdown-display:hover { border-color: #bbb; }
+    .conn-dropdown-display .conn-placeholder { color: #aaa; }
+    .conn-dropdown-display .conn-arrow { margin-left: auto; color: #aaa; font-size: 10px; transition: transform 0.2s; }
+    .conn-dropdown-display.open .conn-arrow { transform: rotate(180deg); }
+    .conn-dropdown-panel { position: absolute; top: 100%; left: 0; right: 0; background: #fff; border: 1px solid #ddd; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); max-height: 280px; overflow-y: auto; z-index: 100; display: none; margin-top: 2px; }
+    .conn-dropdown-panel.show { display: block; }
+    .conn-dropdown-item { display: flex; align-items: center; padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #f5f5f5; font-size: 13px; gap: 8px; }
+    .conn-dropdown-item:last-child { border-bottom: none; }
+    .conn-dropdown-item:hover { background: #f0f7ff; }
+    .conn-dropdown-item.active { background: #5cdb95; color: #fff; }
+    .conn-dropdown-item.active:hover { background: #5cdb95; }
+    .conn-dropdown-item.active .conn-item-url { color: #fff; }
+    .conn-dropdown-item.active .conn-item-user { color: rgba(255,255,255,0.8); }
+    .conn-dropdown-item.connected-item { border-left: 3px solid #2ecc71; }
+    .conn-dropdown-item .conn-item-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+    .conn-dropdown-item .conn-item-url { font-family: monospace; color: #2c3e50; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .conn-dropdown-item .conn-item-user { color: #999; font-size: 11px; }
+    .conn-tag-badge { display: inline-block; padding: 1px 8px; background: #e8f4fd; color: #3498db; border-radius: 10px; font-size: 11px; cursor: pointer; line-height: 1.6; flex-shrink: 0; border: 1px solid transparent; }
+    .conn-tag-badge.empty { background: #fff; color: #bbb; border: 1px dashed #ccc; }
+    .conn-tag-badge:hover { border-color: #3498db; }
+    .conn-tag-edit { padding: 2px 6px; border: 1px solid #3498db; border-radius: 3px; font-size: 11px; width: 80px; outline: none; flex-shrink: 0; }
+    .conn-current-info { margin-top: 8px; font-size: 12px; color: #888; }
+    .conn-current-info .conn-current-tag { display: inline-block; padding: 1px 8px; background: #e8f4fd; color: #3498db; border-radius: 10px; font-size: 11px; margin-right: 6px; }
   </style>
 </head>
 <body>
@@ -83,6 +112,16 @@
     <!-- 连接配置 -->
     <div class="card">
       <h2>连接配置</h2>
+      <div class="form-row" style="align-items:flex-start;">
+        <div class="conn-dropdown-wrap" id="connDropdownWrap">
+          <div class="conn-dropdown-display" id="connDropdownDisplay">
+            <span class="conn-placeholder">-- 选择已保存的配置 --</span>
+            <span class="conn-arrow">▼</span>
+          </div>
+          <div class="conn-dropdown-panel" id="connDropdownPanel"></div>
+        </div>
+        <button class="btn btn-sm btn-danger" id="deleteConnBtn" onclick="deleteConnection()" disabled title="删除此配置">删除</button>
+      </div>
       <div class="form-row">
         <input id="brokerUrl" placeholder="Broker 地址，如 tcp://192.168.1.100:1883" style="flex:2">
         <input id="username" placeholder="服务端用户名">
@@ -93,7 +132,7 @@
         <button class="btn btn-success" onclick="doConnect()">连接</button>
         <button class="btn btn-danger" onclick="doDisconnect()">断开</button>
       </div>
-      <div id="connInfo" style="margin-top:8px;font-size:12px;color:#888;"></div>
+      <div id="connInfo" class="conn-current-info"></div>
     </div>
 
     <!-- 诊断测试 -->
@@ -219,13 +258,181 @@
         }),
       });
       const data = await res.json();
-      if (res.ok) showToast('正在连接...');
+      if (res.ok) {
+        showToast('正在连接...');
+        await loadConnections();
+      }
       else showToast(data.error, 'error');
     }
 
     async function doDisconnect() {
       await fetch('/api/disconnect', { method: 'POST' });
       showToast('已断开');
+    }
+
+    // 连接配置管理
+    let savedConnections = [];
+    let currentConnId = null;
+
+    async function loadConnections() {
+      const res = await fetch('/api/connections');
+      savedConnections = await res.json();
+      renderConnSelect();
+    }
+
+    function renderConnSelect() {
+      renderConnPanel();
+      updateConnDisplay();
+    }
+
+    function renderConnPanel() {
+      const panel = document.getElementById('connDropdownPanel');
+      const selectedId = selectedConnId;
+
+      if (savedConnections.length === 0) {
+        panel.innerHTML = '<div style="padding:16px;text-align:center;color:#aaa;font-size:13px;">暂无保存的配置</div>';
+        return;
+      }
+
+      panel.innerHTML = savedConnections.map(c => {
+        const isActive = c.id === selectedId;
+        const isConnected = c.id === currentConnId;
+        const classes = ['conn-dropdown-item'];
+        if (isActive) classes.push('active');
+        if (isConnected) classes.push('connected-item');
+        const tagHtml = c.tag
+          ? `<span class="conn-tag-badge" onclick="event.stopPropagation();editConnTag(this,${c.id})" title="点击编辑标签">${escapeHtml(c.tag)}</span>`
+          : `<span class="conn-tag-badge empty" onclick="event.stopPropagation();editConnTag(this,${c.id})" title="点击添加标签">添加标签</span>`;
+        return `<div class="${classes.join(' ')}" onclick="pickConnection(${c.id})">
+          <div class="conn-item-info">
+            <span class="conn-item-url">${escapeHtml(c.brokerUrl)}</span>
+            ${c.username ? `<span class="conn-item-user">${escapeHtml(c.username)}</span>` : ''}
+          </div>
+          ${tagHtml}
+        </div>`;
+      }).join('');
+    }
+
+    function updateConnDisplay() {
+      const display = document.getElementById('connDropdownDisplay');
+      if (selectedConnId) {
+        const conn = savedConnections.find(c => c.id === selectedConnId);
+        if (conn) {
+          const tagHtml = conn.tag
+            ? `<span class="conn-tag-badge">${escapeHtml(conn.tag)}</span>`
+            : '';
+          display.innerHTML = `<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(conn.brokerUrl)}</span>${tagHtml}<span class="conn-arrow">▼</span>`;
+        }
+      } else {
+        display.innerHTML = '<span class="conn-placeholder">-- 选择已保存的配置 --</span><span class="conn-arrow">▼</span>';
+      }
+    }
+
+    let selectedConnId = null;
+
+    function toggleConnDropdown() {
+      const panel = document.getElementById('connDropdownPanel');
+      const display = document.getElementById('connDropdownDisplay');
+      const isOpen = panel.classList.contains('show');
+      if (isOpen) {
+        hideConnDropdown();
+      } else {
+        renderConnPanel();
+        panel.classList.add('show');
+        display.classList.add('open');
+      }
+    }
+
+    function hideConnDropdown() {
+      document.getElementById('connDropdownPanel').classList.remove('show');
+      document.getElementById('connDropdownDisplay').classList.remove('open');
+    }
+
+    function pickConnection(id) {
+      selectedConnId = id;
+      const conn = savedConnections.find(c => c.id === id);
+      if (conn) {
+        document.getElementById('brokerUrl').value = conn.brokerUrl;
+        document.getElementById('username').value = conn.username || '';
+        document.getElementById('password').value = conn.password || '';
+        document.getElementById('clientId').value = conn.clientId || '';
+      }
+      document.getElementById('deleteConnBtn').disabled = !id || (currentConnId && id === currentConnId);
+      hideConnDropdown();
+      renderConnSelect();
+    }
+
+    function editConnTag(el, id) {
+      const conn = savedConnections.find(c => c.id === id);
+      if (!conn) return;
+      const currentTag = conn.tag || '';
+      const input = document.createElement('input');
+      input.className = 'conn-tag-edit';
+      input.value = currentTag;
+      input.placeholder = '标签';
+      el.replaceWith(input);
+      input.focus();
+      input.select();
+
+      const save = async () => {
+        const newTag = input.value.trim();
+        if (newTag !== currentTag) {
+          await fetch(`/api/connections/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tag: newTag }),
+          });
+        }
+        await loadConnections();
+      };
+
+      input.addEventListener('blur', save);
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+        if (e.key === 'Escape') { input.removeEventListener('blur', save); loadConnections(); }
+      });
+    }
+
+    async function deleteConnection() {
+      const id = selectedConnId;
+      if (!id) return;
+      if (id === currentConnId) return showToast('当前连接中的配置不可删除', 'error');
+      await fetch(`/api/connections/${id}`, { method: 'DELETE' });
+      showToast('已删除');
+      selectedConnId = null;
+      await loadConnections();
+    }
+
+    function matchCurrentConnection(data) {
+      if (!data.connected || !data.brokerUrl) {
+        currentConnId = null;
+      } else {
+        const match = savedConnections.find(c =>
+          c.brokerUrl === data.brokerUrl &&
+          (c.username || '') === (data.username || '')
+        );
+        currentConnId = match ? match.id : null;
+        if (match && !selectedConnId) {
+          selectedConnId = match.id;
+        }
+      }
+      document.getElementById('deleteConnBtn').disabled = !selectedConnId || (currentConnId && selectedConnId === currentConnId);
+      // Only re-render if dropdown is closed (avoid destroying edit input)
+      if (!document.getElementById('connDropdownPanel').classList.contains('show')) {
+        renderConnSelect();
+      } else {
+        // Update active/connected classes without full re-render
+        const items = document.querySelectorAll('.conn-dropdown-item');
+        items.forEach(item => {
+          item.classList.remove('active', 'connected-item');
+        });
+        savedConnections.forEach((c, i) => {
+          if (items[i]) {
+            if (c.id === selectedConnId) items[i].classList.add('active');
+            if (c.id === currentConnId) items[i].classList.add('connected-item');
+          }
+        });
+      }
     }
 
     // 诊断测试
@@ -426,8 +633,10 @@
       } else {
         dot.className = 'status-dot';
         text.textContent = '未连接';
+        currentConnId = null;
       }
       updateConnInfo(data);
+      matchCurrentConnection(data);
     });
 
     socket.on('message', (msg) => {
@@ -448,9 +657,17 @@
 
     function updateConnInfo(data) {
       const el = document.getElementById('connInfo');
-      if (!data.brokerUrl) { el.textContent = ''; return; }
-      let html = `Broker: ${escapeHtml(data.brokerUrl)}`;
+      if (!data.brokerUrl) { el.innerHTML = ''; return; }
+      let html = '';
+      const conn = savedConnections.find(c =>
+        c.brokerUrl === data.brokerUrl && (c.username || '') === (data.username || '')
+      );
+      html += `<span style="color:#2ecc71;">●</span> Broker: <strong>${escapeHtml(data.brokerUrl)}</strong>`;
       if (data.username) html += ` | 账号: <strong>${escapeHtml(data.username)}</strong>`;
+      if (data.clientId) html += ` | Client ID: <strong>${escapeHtml(data.clientId)}</strong>`;
+      if (conn && conn.tag) {
+        html += ` | <span class="conn-current-tag">${escapeHtml(conn.tag)}</span>`;
+      }
       html += ` | 状态: ${data.connected ? '<span style="color:#2ecc71;">已连接</span>' : '<span style="color:#e74c3c;">未连接</span>'}`;
       if (data.lastError) {
         html += `<br><span style="color:#e74c3c;">错误: ${escapeHtml(data.lastError)}</span>`;
@@ -459,17 +676,22 @@
     }
 
     // 初始化加载状态
-    fetch('/api/status').then(r => r.json()).then(data => {
+    Promise.all([
+      fetch('/api/status').then(r => r.json()),
+      loadConnections(),
+    ]).then(([data]) => {
       if (data.connected) {
         document.getElementById('statusDot').className = 'status-dot connected';
         document.getElementById('statusText').textContent = '已连接';
       }
       renderSubscriptions(data.subscriptions);
       updateConnInfo(data);
+      matchCurrentConnection(data);
     });
 
     // Topic 管理
     let savedTopics = [];
+    let selectedTopic = null;
 
     async function loadSavedTopics() {
       const res = await fetch('/api/topics');
@@ -484,12 +706,13 @@
         dd.innerHTML = '<div class="topic-dropdown-empty">暂无保存的 Topic</div>';
         return;
       }
-      dd.innerHTML = savedTopics.map(t => `
-        <div class="topic-dropdown-item" onclick="selectTopic('${escapeJs(t.topic)}')">
+      dd.innerHTML = savedTopics.map(t => {
+        const isSelected = t.topic === selectedTopic;
+        return `<div class="topic-dropdown-item${isSelected ? ' selected' : ''}" onclick="selectTopic('${escapeJs(t.topic)}')">
           <span class="topic-name">${escapeHtml(t.topic)}</span>
           ${t.tag ? `<span class="topic-tag">${escapeHtml(t.tag)}</span>` : ''}
-        </div>
-      `).join('');
+        </div>`;
+      }).join('');
     }
 
     function renderTopicManageList() {
@@ -513,13 +736,17 @@
     }
 
     function selectTopic(topic) {
+      selectedTopic = topic;
       document.getElementById('pubTopic').value = topic;
+      renderTopicDropdown();
       hideTopicDropdown();
       updateClearBtn();
     }
 
     function clearTopic() {
+      selectedTopic = null;
       document.getElementById('pubTopic').value = '';
+      renderTopicDropdown();
       updateClearBtn();
     }
 
@@ -539,8 +766,10 @@
 
     document.getElementById('pubTopic').addEventListener('focus', showTopicDropdown);
     document.getElementById('pubTopic').addEventListener('input', updateClearBtn);
+    document.getElementById('connDropdownDisplay').addEventListener('click', toggleConnDropdown);
     document.addEventListener('click', (e) => {
       if (!e.target.closest('.topic-input-wrap')) hideTopicDropdown();
+      if (!e.target.closest('.conn-dropdown-wrap')) hideConnDropdown();
     });
 
     async function editTag(el, topic) {
@@ -668,6 +897,7 @@
       fetch('/api/status').then(r => r.json()).then(data => {
         renderSubscriptions(data.subscriptions);
         updateConnInfo(data);
+        matchCurrentConnection(data);
       });
     }, 3000);
   </script>
